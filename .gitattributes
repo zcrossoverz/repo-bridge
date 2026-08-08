@@ -1,0 +1,26 @@
+# Normalise line endings. Without this, every commit from Windows rewrites the
+# whole file and contributors on other platforms see diffs that contain no
+# actual change.
+* text=auto eol=lf
+
+# Shell scripts and anything executed by a shell must keep LF even on Windows.
+*.sh    text eol=lf
+*.mjs   text eol=lf
+*.ts    text eol=lf
+
+# Windows batch files break with LF.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Never touch binaries.
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+
+# Keep generated noise out of language statistics and PR diffs.
+package-lock.json  linguist-generated=true -diff
+dist/**            linguist-generated=true

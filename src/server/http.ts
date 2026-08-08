@@ -14,6 +14,7 @@
  */
 import http from 'node:http';
 import { loadConfig } from '../config.js';
+import { runWithContext } from '../context.js';
 import { log } from '../logger.js';
 import { authenticateMcpRequest, describeAuthMode } from '../auth/index.js';
 import { handleOAuthRoute, publicOrigin } from '../auth/oauth-server.js';
@@ -162,7 +163,9 @@ export function startHttpServer(): http.Server {
     });
 
     await mcpServer.connect(transport);
-    await transport.handleRequest(req, res, body);
+    // Everything downstream — including which workspace is "active" — is scoped
+    // to the authenticated caller, so two clients cannot redirect each other.
+    await runWithContext({ principal: auth.principal }, () => transport.handleRequest(req, res, body));
   }
 
   server.listen(cfg.port, cfg.host, () => {

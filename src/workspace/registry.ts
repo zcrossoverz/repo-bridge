@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { loadConfig, type Config } from '../config.js';
+import { currentPrincipal } from '../context.js';
 import { BridgeError } from '../errors.js';
 import { isInside, realpathTolerant } from '../security/paths.js';
 
@@ -65,6 +66,18 @@ export interface ChangeLog {
 }
 
 interface PersistedState {
+  version: 2;
+  /**
+   * Active workspace per caller. Keyed by principal so two clients — or a
+   * ChatGPT connector and a local stdio session — cannot redirect each other's
+   * edits into the wrong repository.
+   */
+  activeByPrincipal: Record<string, string>;
+  workspaces: Workspace[];
+}
+
+/** Shape of the v1 file, migrated on first load after an upgrade. */
+interface PersistedStateV1 {
   version: 1;
   activeWorkspaceId: string | null;
   workspaces: Workspace[];
@@ -93,19 +106,28 @@ export class WorkspaceRegistry {
   private load(): PersistedState {
     try {
       const raw = fs.readFileSync(this.stateFile, 'utf8');
-      const parsed = JSON.parse(raw) as PersistedState;
-      if (parsed.version === 1 && Array.isArray(parsed.workspaces)) {
+      const parsed = JSON.parse(raw) as PersistedState | PersistedStateV1;
+
+      if (Array.isArray(parsed.workspaces)) {
+        // v1 tracked a single global active workspace. Preserve the registered
+        // workspaces across the upgrade; the active selection is per-caller now
+        // and is re-established by the next workspace_open.
+        const state: PersistedState =
+          parsed.version === 2
+            ? { version: 2, activeByPrincipal: parsed.activeByPrincipal ?? {}, workspaces: parsed.workspaces }
+            : { version: 2, activeByPrincipal: {}, workspaces: parsed.workspaces };
+
         // Drop workspaces whose directory disappeared since last run.
-        parsed.workspaces = parsed.workspaces.filter((w) => fs.existsSync(w.root));
-        if (parsed.activeWorkspaceId && !parsed.workspaces.some((w) => w.id === parsed.activeWorkspaceId)) {
-          parsed.activeWorkspaceId = null;
+        state.workspaces = state.workspaces.filter((w) => fs.existsSync(w.root));
+        for (const [principal, id] of Object.entries(state.activeByPrincipal)) {
+          if (!state.workspaces.some((w) => w.id === id)) delete state.activeByPrincipal[principal];
         }
-        return parsed;
+        return state;
       }
     } catch {
       /* first run, or corrupt state — start clean */
     }
-    return { version: 1, activeWorkspaceId: null, workspaces: [] };
+    return { version: 2, activeByPrincipal: {}, workspaces: [] };
   }
 
   private save(): void {
@@ -157,13 +179,15 @@ export class WorkspaceRegistry {
     return this.state.workspaces.find((w) => w.id === idOrAlias || w.alias === idOrAlias);
   }
 
-  active(): Workspace | null {
-    if (!this.state.activeWorkspaceId) return null;
-    return this.state.workspaces.find((w) => w.id === this.state.activeWorkspaceId) ?? null;
+  /** The workspace this caller most recently opened. */
+  active(principal: string = currentPrincipal()): Workspace | null {
+    const id = this.state.activeByPrincipal[principal];
+    if (!id) return null;
+    return this.state.workspaces.find((w) => w.id === id) ?? null;
   }
 
-  /** Resolve the workspace a tool call should act on. */
-  require(idOrAlias?: string): Workspace {
+  /** Resolve the workspace a tool call should act on, for the calling client. */
+  require(idOrAlias?: string, principal: string = currentPrincipal()): Workspace {
     if (idOrAlias) {
       const found = this.get(idOrAlias);
       if (!found) {
@@ -173,7 +197,7 @@ export class WorkspaceRegistry {
       }
       return found;
     }
-    const act = this.active();
+    const act = this.active(principal);
     if (!act) {
       throw new BridgeError('NO_WORKSPACE', 'No workspace is open.', {
         hint:
@@ -188,7 +212,7 @@ export class WorkspaceRegistry {
    * Register (or refresh) a local workspace. `target` may be an alias of a
    * configured root or any path inside one.
    */
-  openLocal(target: string): Workspace {
+  openLocal(target: string, principal: string = currentPrincipal()): Workspace {
     const byAlias = this.cfg.workspaceRoots.find((r) => r.alias === target);
     const candidate = byAlias ? byAlias.path : path.resolve(target);
 
@@ -206,7 +230,7 @@ export class WorkspaceRegistry {
     const existing = this.state.workspaces.find((w) => isInside(w.root, root) && isInside(root, w.root));
     if (existing) {
       existing.lastUsedAt = new Date().toISOString();
-      this.state.activeWorkspaceId = existing.id;
+      this.state.activeByPrincipal[principal] = existing.id;
       this.save();
       return existing;
     }
@@ -220,13 +244,13 @@ export class WorkspaceRegistry {
       lastUsedAt: new Date().toISOString(),
     };
     this.state.workspaces.push(ws);
-    this.state.activeWorkspaceId = ws.id;
+    this.state.activeByPrincipal[principal] = ws.id;
     this.save();
     return ws;
   }
 
   /** Register a managed (cloned) workspace after the clone has succeeded. */
-  registerManaged(root: string, remote: RemoteInfo, task?: string): Workspace {
+  registerManaged(root: string, remote: RemoteInfo, task?: string, principal: string = currentPrincipal()): Workspace {
     this.assertAllowedRoot(root);
     const real = realpathTolerant(root);
     const existing = this.state.workspaces.find((w) => w.root === real);
@@ -234,7 +258,7 @@ export class WorkspaceRegistry {
       existing.lastUsedAt = new Date().toISOString();
       existing.remote = remote;
       if (task) existing.task = task;
-      this.state.activeWorkspaceId = existing.id;
+      this.state.activeByPrincipal[principal] = existing.id;
       this.save();
       return existing;
     }
@@ -249,16 +273,16 @@ export class WorkspaceRegistry {
       lastUsedAt: new Date().toISOString(),
     };
     this.state.workspaces.push(ws);
-    this.state.activeWorkspaceId = ws.id;
+    this.state.activeByPrincipal[principal] = ws.id;
     this.save();
     return ws;
   }
 
-  setActive(idOrAlias: string): Workspace {
+  setActive(idOrAlias: string, principal: string = currentPrincipal()): Workspace {
     const ws = this.get(idOrAlias);
     if (!ws) throw new BridgeError('WORKSPACE_NOT_FOUND', `No workspace named "${idOrAlias}".`);
     ws.lastUsedAt = new Date().toISOString();
-    this.state.activeWorkspaceId = ws.id;
+    this.state.activeByPrincipal[principal] = ws.id;
     this.save();
     return ws;
   }
@@ -283,7 +307,10 @@ export class WorkspaceRegistry {
     }
 
     this.state.workspaces = this.state.workspaces.filter((w) => w.id !== ws.id);
-    if (this.state.activeWorkspaceId === ws.id) this.state.activeWorkspaceId = null;
+    // Clear it for every caller that had it selected, not just this one.
+    for (const [principal, id] of Object.entries(this.state.activeByPrincipal)) {
+      if (id === ws.id) delete this.state.activeByPrincipal[principal];
+    }
     this.save();
     this.logs.delete(ws.id);
     try {

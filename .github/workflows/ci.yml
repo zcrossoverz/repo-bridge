@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['22', '24']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # The end-to-end suite builds a real git repository and commits to it.
+      - name: Configure git for the fixtures
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      # Drives a real repository through the MCP protocol: inspect, edit, test
+      # red, fix, test green, branch, commit, push to a local bare remote.
+      - name: End-to-end
+        run: npm run test:e2e
+
+      # Both HTTP auth modes plus a full OAuth 2.1 authorization-code flow.
+      - name: HTTP and auth
+        run: npm run test:http
+
+  # The published image is part of the product; a broken Dockerfile should fail
+  # the build, not the user's first deploy.
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t repo-bridge:ci .
+      - name: Container serves /health
+        run: |
+          docker run -d --name rb-ci -p 8848:8848 \
+            -e REPO_BRIDGE_AUTH=path-token \
+            -e REPO_BRIDGE_TOKEN=ci-smoke-token-0123456789abcdefgh \
+            -e REPO_BRIDGE_WORKSPACES=repos=/workspaces \
+            repo-bridge:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8848/health; then exit 0; fi
+            sleep 2
+          done
+          echo "health check never succeeded"
+          docker logs rb-ci
+          exit 1

@@ -3,7 +3,8 @@
 **Turn ChatGPT Web into a real coding agent on your own repositories — no OpenAI API key, no per-token API bill.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![CI](https://github.com/zcrossoverz/repo-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/zcrossoverz/repo-bridge/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-2025--06--18-8A2BE2.svg)](https://modelcontextprotocol.io)
 [![OAuth 2.1](https://img.shields.io/badge/auth-OAuth%202.1%20%2B%20PKCE-orange.svg)](docs/SECURITY.md)
 [![Checks](https://img.shields.io/badge/checks-200%20passing-success.svg)](#verification)
@@ -71,7 +72,7 @@ Your code stays on your machine (or your own VPS). The bridge only ever sees the
 
 ## Quick start
 
-Requires Node.js 20+ and git. [ripgrep](https://github.com/BurntSushi/ripgrep) is optional and speeds up search on large repos.
+Requires Node.js 22+ and git. [ripgrep](https://github.com/BurntSushi/ripgrep) is optional and speeds up search on large repos.
 
 ```bash
 git clone https://github.com/zcrossoverz/repo-bridge.git && cd repo-bridge && npm install && npm run build

@@ -7,6 +7,7 @@
  * missing.
  */
 import { loadConfig } from '../config.js';
+import { currentPrincipal } from '../context.js';
 import { BridgeError, errMessage, isBridgeError } from '../errors.js';
 import { audit, log } from '../logger.js';
 import { allows } from '../security/permissions.js';
@@ -69,19 +70,21 @@ export async function callTool(name: string, rawArgs: Record<string, unknown>): 
     };
   }
 
+  const principal = currentPrincipal();
+
   try {
     const text = await tool.handler(new Args(rawArgs ?? {}, name));
-    log.debug('tool ok', { tool: name, durationMs: Date.now() - started });
+    log.debug('tool ok', { tool: name, principal, durationMs: Date.now() - started });
     return { text: text || '(no output)', isError: false };
   } catch (e) {
     const durationMs = Date.now() - started;
     if (isBridgeError(e)) {
-      log.warn('tool refused', { tool: name, code: e.code, durationMs });
-      audit({ action: name, outcome: e.code === 'PERMISSION_DENIED' || e.code.endsWith('BLOCKED') ? 'blocked' : 'error', durationMs, detail: { code: e.code } });
+      log.warn('tool refused', { tool: name, principal, code: e.code, durationMs });
+      audit({ action: name, outcome: e.code === 'PERMISSION_DENIED' || e.code.endsWith('BLOCKED') ? 'blocked' : 'error', durationMs, detail: { code: e.code, principal } });
       return { text: `[${e.code}] ${e.message}${e.hint ? `\n\n${e.hint}` : ''}`, isError: true };
     }
-    log.error('tool failed', { tool: name, error: errMessage(e), durationMs });
-    audit({ action: name, outcome: 'error', durationMs });
+    log.error('tool failed', { tool: name, principal, error: errMessage(e), durationMs });
+    audit({ action: name, outcome: 'error', durationMs, detail: { principal } });
     return { text: `[INTERNAL_ERROR] ${errMessage(e)}`, isError: true };
   }
 }

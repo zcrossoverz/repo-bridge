@@ -62,7 +62,7 @@ async function waitForHealth(base, timeoutMs = 20_000) {
   }
 }
 
-function startBridge({ port, auth, workspace, dataDir, extraEnv = {} }) {
+function startBridge({ port, auth, workspace, workspace2, dataDir, extraEnv = {} }) {
   return spawn(process.execPath, [path.join(projectRoot, 'dist', 'index.js'), '--http'], {
     env: {
       ...process.env,
@@ -72,7 +72,7 @@ function startBridge({ port, auth, workspace, dataDir, extraEnv = {} }) {
       REPO_BRIDGE_AUTH: auth,
       REPO_BRIDGE_TOKEN: TOKEN,
       REPO_BRIDGE_PERMISSION: 'develop',
-      REPO_BRIDGE_WORKSPACES: `demo=${workspace}`,
+      REPO_BRIDGE_WORKSPACES: `demo=${workspace};demo2=${workspace2}`,
       REPO_BRIDGE_DATA_DIR: dataDir,
       REPO_BRIDGE_LOG_LEVEL: 'error',
       ...extraEnv,
@@ -410,6 +410,92 @@ async function checkOAuthMode(base) {
     body: mcpBody('tools/list'),
   });
   check('a revoked token is rejected', afterRevoke.status === 401, `status ${afterRevoke.status}`);
+
+  step('H. Per-client workspace isolation');
+
+  // Two independently authorized clients, as if a ChatGPT connector and an MCP
+  // Inspector session were both attached. Each must keep its own active
+  // workspace: this is the defect where one client silently redirected the
+  // other's edits into the wrong repository.
+  const alice = await authorizeNewClient(base, asm, 'Client Alice');
+  const bob = await authorizeNewClient(base, asm, 'Client Bob');
+
+  const openFor = (token, workspace) =>
+    fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { ...MCP_HEADERS, Authorization: `Bearer ${token}` },
+      body: mcpBody('tools/call', 30, { name: 'workspace_open', arguments: { path: workspace } }),
+    }).then((r) => r.text());
+
+  const infoFor = (token) =>
+    fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { ...MCP_HEADERS, Authorization: `Bearer ${token}` },
+      body: mcpBody('tools/call', 31, { name: 'workspace_info', arguments: {} }),
+    }).then((r) => r.text());
+
+  check('client A opens demo', (await openFor(alice, 'demo')).includes('alias: demo'));
+  check('client B opens demo2', (await openFor(bob, 'demo2')).includes('alias: demo2'));
+
+  const aliceInfo = await infoFor(alice);
+  const bobInfo = await infoFor(bob);
+  check('client A still sees demo after B switched', /alias: demo\\n|alias: demo[^2]/.test(aliceInfo), aliceInfo.slice(0, 200));
+  check('client B sees demo2', /alias: demo2/.test(bobInfo), bobInfo.slice(0, 200));
+
+  // A caller that never opened anything must be told so, not handed someone else's.
+  const carol = await authorizeNewClient(base, asm, 'Client Carol');
+  const carolInfo = await infoFor(carol);
+  check('a fresh client gets NO_WORKSPACE, not another client\'s workspace', /NO_WORKSPACE/.test(carolInfo), carolInfo.slice(0, 200));
+}
+
+/** Register a client and run a full authorization, returning its access token. */
+async function authorizeNewClient(base, asm, clientName) {
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+
+  const registration = await (
+    await fetch(asm.registration_endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_name: clientName, redirect_uris: [REDIRECT_URI], token_endpoint_auth_method: 'none' }),
+    })
+  ).json();
+
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: registration.client_id,
+    redirect_uri: REDIRECT_URI,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    scope: 'mcp',
+    resource: `${base}/mcp`,
+  });
+  const consent = await (await fetch(`${asm.authorization_endpoint}?${params}`)).text();
+  const ticket = /name="ticket" value="([^"]+)"/.exec(consent)?.[1];
+
+  const approve = await fetch(asm.authorization_endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ ticket, passphrase: TOKEN }),
+    redirect: 'manual',
+  });
+  const code = new URL(approve.headers.get('location')).searchParams.get('code');
+
+  const tokens = await (
+    await fetch(asm.token_endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: registration.client_id,
+        code_verifier: verifier,
+      }),
+    })
+  ).json();
+
+  return tokens.access_token;
 }
 
 // ── main ─────────────────────────────────────────────────────────────────────
@@ -417,18 +503,21 @@ async function checkOAuthMode(base) {
 async function main() {
   const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'repo-bridge-http-')));
   const workspace = path.join(base, 'demo');
-  fs.mkdirSync(workspace, { recursive: true });
-  fs.writeFileSync(path.join(workspace, 'README.md'), '# demo\n');
+  const workspace2 = path.join(base, 'demo2');
+  for (const [dir, name] of [[workspace, 'demo'], [workspace2, 'demo2']]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'README.md'), `# ${name}\n`);
+  }
 
   const pathTokenPort = 8899;
   const oauthPort = 8900;
   const children = [];
 
   try {
-    children.push(startBridge({ port: pathTokenPort, auth: 'path-token', workspace, dataDir: path.join(base, 'data-pt') }));
+    children.push(startBridge({ port: pathTokenPort, auth: 'path-token', workspace, workspace2, dataDir: path.join(base, 'data-pt') }));
     await checkPathTokenMode(`http://127.0.0.1:${pathTokenPort}`, workspace);
 
-    children.push(startBridge({ port: oauthPort, auth: 'oauth', workspace, dataDir: path.join(base, 'data-oauth') }));
+    children.push(startBridge({ port: oauthPort, auth: 'oauth', workspace, workspace2, dataDir: path.join(base, 'data-oauth') }));
     await checkOAuthMode(`http://127.0.0.1:${oauthPort}`);
   } finally {
     for (const child of children) child.kill();
