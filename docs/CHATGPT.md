@@ -90,7 +90,9 @@ Alternatives: `ngrok http 8848`, or your own reverse proxy — see [DEPLOYMENT.m
 6. Paste your `REPO_BRIDGE_TOKEN` into the passphrase field and click **Authorize**.
 7. ChatGPT completes the exchange and lists the discovered tools.
 
-Developer mode is required: the default connector experience only exposes search-and-fetch style tools, which is not enough to edit and build code.
+**Developer mode is required**, and it needs a **Plus or Pro** plan (Business / Enterprise / Edu is in beta). The free tier cannot add custom connectors at all. Without Developer mode the connector experience only exposes search-and-fetch style tools, which is not enough to edit and build code.
+
+ChatGPT asks for confirmation before running write actions by default. Reading and searching run freely; `edit_file`, `run_command` and the git tools will surface a prompt first. That is on top of the bridge's own permission level — both have to allow an action for it to happen.
 
 ### What happens under the hood
 

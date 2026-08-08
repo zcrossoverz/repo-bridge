@@ -35,7 +35,10 @@ Something wrote to stdout, which corrupts the protocol stream. All bridge loggin
 Check in order: `curl https://your-host/health` from outside your network; the URL ends in `/mcp`; the tunnel is running; `REPO_BRIDGE_AUTH=oauth`.
 
 **ChatGPT's connector UI has no field for my token**
-Correct — it does not have one, and it never will. That is why OAuth exists. Set `REPO_BRIDGE_AUTH=oauth` and choose OAuth in the connector; you will be sent to a browser page to approve once.
+Correct — it does not have one. That is why OAuth exists. Set `REPO_BRIDGE_AUTH=oauth` and choose OAuth in the connector; you will be sent to a browser page to approve once.
+
+**I cannot find Developer mode / cannot create a connector**
+Custom MCP connectors require a **Plus or Pro** plan (Business / Enterprise / Edu is in beta). The free tier cannot add them. There is no workaround on the bridge side — use stdio with a local client instead.
 
 **ChatGPT does not start the OAuth flow / "could not discover authorization"**
 The bridge must be reachable over **HTTPS** and must advertise the same origin the client used. Check discovery by hand:

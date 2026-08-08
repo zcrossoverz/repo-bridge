@@ -17,16 +17,17 @@ ChatGPT Web ──MCP/OAuth──► repo-bridge ──► filesystem · shell �
 
 **The bridge never calls an LLM API.** Reasoning stays in your ChatGPT session; the bridge is the execution layer. There is no `OPENAI_API_KEY`, no Codex/API metering, and no per-token charge added by this server — you use the ChatGPT plan you already have.
 
-### Which model runs it?
+### What you need
 
-Whatever your ChatGPT session already uses. repo-bridge is model-agnostic and contains no model logic of its own.
+| | Requirement |
+|---|---|
+| **ChatGPT plan** | **Plus or Pro.** Custom MCP connectors live behind Developer mode, which gives full MCP support — read *and* write tools. Business / Enterprise / Edu is in beta. **The free tier cannot add custom connectors,** so repo-bridge does not work there. |
+| **Model** | Whatever your session runs. On paid plans that is GPT-5.6 Sol — OpenAI's strongest coding model, 272K context, with selectable Medium / High / Extra High reasoning. |
+| **Cost** | The subscription you already pay for. No `OPENAI_API_KEY`, no Codex/API metering, no per-token charge from this bridge. Your plan's own rate limits still apply. |
 
-| ChatGPT plan | Model you get | What that means here |
-|---|---|---|
-| **Free** | GPT-5.6 Luna (default) | Enough to search, read, patch and test a real repository — at no cost |
-| **Plus / Pro / Business** | GPT-5.6 Sol | OpenAI's strongest coding model, 272K context — aimed at your repo with no API bill on top |
+repo-bridge is model-agnostic and contains no model logic of its own — when the model lineup changes, nothing here does.
 
-GPT-5.6 Sol requires a paid plan; the free tier runs Luna. Your plan's own rate limits apply either way — this project doesn't change them, and doesn't claim to.
+> ChatGPT asks you to confirm write actions by default. Reading and searching flow freely; edits, commands and git operations surface a confirmation first — a second pair of eyes on top of the bridge's own permission level.
 
 ---
 
