@@ -7,7 +7,7 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-2025--06--18-8A2BE2.svg)](https://modelcontextprotocol.io)
 [![OAuth 2.1](https://img.shields.io/badge/auth-OAuth%202.1%20%2B%20PKCE-orange.svg)](docs/SECURITY.md)
-[![Checks](https://img.shields.io/badge/checks-217%20passing-success.svg)](#verification)
+[![Checks](https://img.shields.io/badge/checks-220%20passing-success.svg)](#verification)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)](https://www.typescriptlang.org)
 
 repo-bridge is an [MCP](https://modelcontextprotocol.io) server that gives ChatGPT — or Claude Code, Cursor, or any MCP client — real access to your codebase: read and search files, edit them, run builds and tests, drive git, push branches, open pull requests.
@@ -173,11 +173,11 @@ The bridge assumes the model will sometimes be wrong, and that repository conten
 npm run verify
 ```
 
-**217 checks, all passing** — on Linux and Windows, Node 22 and 24:
+**220 checks, all passing** — on Linux and Windows, Node 22 and 24:
 
 | Suite | Checks | What it proves |
 |---|---|---|
-| Unit | 94 | Sandbox escapes, command policy, secret redaction, patching, gitignore/glob, OAuth store semantics, per-caller workspace isolation |
+| Unit | 97 | Sandbox escapes, command policy, secret redaction, patching, gitignore/glob, symlink containment, OAuth store semantics, per-caller workspace isolation |
 | End-to-end | 51 | A real git repo driven **through the MCP protocol**: inspect → search → read → create a failing test → run (red) → fix → run (green) → build → diff → branch → commit → push to a real remote → report |
 | HTTP + auth | 72 | Both auth modes, plus a full OAuth 2.1 flow: 401 challenge → metadata discovery → dynamic registration → consent → PKCE exchange → MCP over bearer → refresh → revoke — and two authorized clients keeping separate workspaces |
 
@@ -246,6 +246,8 @@ src/
 ## Contributing
 
 Issues and pull requests welcome. Run `npm run verify` before opening one; if you add a tool that can refuse something, add the refusal to the end-to-end security checks — the tests that matter most are the ones asserting something *does not* happen.
+
+Found a way around one of the boundaries above? That is a vulnerability, not an issue — see [SECURITY.md](SECURITY.md) for private reporting.
 
 ## License
 

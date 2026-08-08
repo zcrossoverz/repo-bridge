@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { BridgeError } from '../errors.js';
-import { ALWAYS_SKIP_DIRS, resolvePath } from '../security/paths.js';
+import { ALWAYS_SKIP_DIRS, isInside, realpathTolerant, resolvePath } from '../security/paths.js';
 import { isSecretPath, isSecretTemplate } from '../security/secrets.js';
 import { makeMatcher } from './glob.js';
 import { GitIgnore } from './gitignore.js';
@@ -92,9 +92,34 @@ function buildRegex(opts: SearchOptions): RegExp {
   }
 }
 
-/** Depth-first file walk honouring .gitignore, skip-dirs and secret paths. */
+/**
+ * Depth-first file walk honouring .gitignore, skip-dirs and secret paths.
+ *
+ * Symlinks are followed **only when they resolve inside the workspace**. Refusing
+ * them outright was safe but wrong: pnpm workspaces and monorepos link packages
+ * into place, and skipping those makes search miss real code silently — the
+ * worst kind of failure, because nothing tells you the result is incomplete.
+ * A link pointing outside the workspace is still ignored, and already-visited
+ * real directories are tracked so a symlink cycle cannot loop forever.
+ */
 export function* walkFiles(root: string, subPath: string, ig: GitIgnore): Generator<{ abs: string; rel: string }> {
+  const realRoot = realpathTolerant(root);
+  const visited = new Set<string>();
   const stack: string[] = [path.join(root, subPath)];
+
+  const enterDirectory = (abs: string): boolean => {
+    let real: string;
+    try {
+      real = fs.realpathSync.native(abs);
+    } catch {
+      return false; // broken link, or vanished mid-walk
+    }
+    if (!isInside(realRoot, real)) return false;
+    if (visited.has(real)) return false;
+    visited.add(real);
+    return true;
+  };
+
   while (stack.length) {
     const dir = stack.pop()!;
     let items: fs.Dirent[];
@@ -103,18 +128,41 @@ export function* walkFiles(root: string, subPath: string, ig: GitIgnore): Genera
     } catch {
       continue;
     }
+
     for (const item of items) {
       const abs = path.join(dir, item.name);
       const rel = path.relative(root, abs).split(path.sep).join('/');
       if (!rel || rel.startsWith('..')) continue;
-      if (item.isSymbolicLink()) continue; // never follow: could leave the workspace
-      if (item.isDirectory()) {
+
+      // A symlink's Dirent reports the link itself, so ask what it points at.
+      let isDir = item.isDirectory();
+      let isFile = item.isFile();
+      if (item.isSymbolicLink()) {
+        let target: fs.Stats;
+        try {
+          target = fs.statSync(abs); // follows the link
+        } catch {
+          continue; // dangling
+        }
+        let real: string;
+        try {
+          real = fs.realpathSync.native(abs);
+        } catch {
+          continue;
+        }
+        if (!isInside(realRoot, real)) continue; // leaves the workspace
+        isDir = target.isDirectory();
+        isFile = target.isFile();
+      }
+
+      if (isDir) {
         if (ALWAYS_SKIP_DIRS.has(item.name)) continue;
         if (ig.ignores(rel + '/')) continue;
+        if (!enterDirectory(abs)) continue;
         stack.push(abs);
         continue;
       }
-      if (!item.isFile()) continue;
+      if (!isFile) continue;
       if (ig.ignores(rel)) continue;
       if (isSecretPath(rel) && !isSecretTemplate(rel)) continue;
       if (BINARY_EXT.has(path.extname(item.name).toLowerCase())) continue;

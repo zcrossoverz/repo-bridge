@@ -172,6 +172,63 @@ test('searchCode rejects an invalid regular expression clearly', async () => {
   );
 });
 
+test('searchCode follows symlinks that stay inside the workspace', async (t) => {
+  const root = fixture();
+  const linked = path.join(root, 'packages-src');
+  fs.mkdirSync(linked, { recursive: true });
+  fs.writeFileSync(path.join(linked, 'Linked.ts'), 'export const RiskService = "linked";\n');
+
+  try {
+    // Junctions work on Windows without elevation; symlinks usually do not.
+    fs.symlinkSync(linked, path.join(root, 'packages'), 'junction');
+  } catch {
+    t.skip('cannot create symlinks in this environment');
+    return;
+  }
+
+  const res = await searchCode(root, { pattern: 'RiskService', maxResults: 50 });
+  const files = new Set(res.matches.map((m) => m.path));
+  assert.ok([...files].some((f) => f.startsWith('packages/')), 'a workspace-internal symlink must be searched');
+});
+
+test('searchCode does not follow a symlink out of the workspace', async (t) => {
+  const root = fixture();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-bridge-outside-'));
+  fs.writeFileSync(path.join(outside, 'Secret.ts'), 'export const RiskService = "leaked";\n');
+
+  try {
+    fs.symlinkSync(outside, path.join(root, 'escape'), 'junction');
+  } catch {
+    t.skip('cannot create symlinks in this environment');
+    return;
+  }
+
+  const res = await searchCode(root, { pattern: 'RiskService', maxResults: 50 });
+  assert.equal(
+    res.matches.some((m) => m.text.includes('leaked')),
+    false,
+    'content outside the workspace must never appear in results',
+  );
+});
+
+test('a symlink cycle does not hang the walk', async (t) => {
+  const root = fixture();
+  const inner = path.join(root, 'inner');
+  fs.mkdirSync(inner, { recursive: true });
+  fs.writeFileSync(path.join(inner, 'Cycle.ts'), 'export const RiskService = 1;\n');
+
+  try {
+    fs.symlinkSync(root, path.join(inner, 'loop'), 'junction');
+  } catch {
+    t.skip('cannot create symlinks in this environment');
+    return;
+  }
+
+  const res = await searchCode(root, { pattern: 'RiskService', maxResults: 200 });
+  assert.ok(res.matches.length > 0);
+  assert.ok(res.elapsedMs < 20_000, 'the walk must terminate');
+});
+
 test('findFiles matches bare patterns anywhere in the tree', () => {
   const root = fixture();
   const { files } = findFiles(root, ['*.ts']);
