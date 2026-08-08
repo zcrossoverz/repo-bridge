@@ -6,6 +6,7 @@
 src/
   index.ts              entry point, transport selection, signal handling
   config.ts             environment → Config. The only source of permissions.
+  context.ts            per-request caller identity (AsyncLocalStorage)
   errors.ts             BridgeError taxonomy
   logger.ts             structured stderr/file logs + append-only audit trail
 

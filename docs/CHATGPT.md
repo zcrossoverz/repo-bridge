@@ -179,6 +179,6 @@ Some ChatGPT builds accept the second form with Authentication set to *None*, si
 
 - The bridge is **stateless over HTTP**: every request is authenticated on its own, so reconnects — which ChatGPT does routinely — cost nothing.
 - **Long commands.** A full Maven build can exceed a connector's patience even though the bridge waits up to `REPO_BRIDGE_EXEC_TIMEOUT_MS`. Ask for a targeted test (`run_tests` with a `target`) during the loop and a full build at the end.
-- **One bridge, many chats.** Concurrent chats share the same active workspace. Pass `workspace` explicitly, or use `repo_open_remote` with a distinct `task` label to keep parallel work isolated.
+- **One bridge, many clients.** Each authenticated client keeps its own active workspace, so a ChatGPT connector and a local stdio session cannot redirect each other's edits. **Several chats inside the same connector still share one** — MCP carries no conversation identity for the bridge to key on. When you run parallel work in one connector, pass `workspace` explicitly on each call, or give each task its own managed workspace with `repo_open_remote` and a distinct `task` label.
 - **The bridge does not read your ChatGPT conversation.** It only ever sees the arguments of the tool calls the model makes.
 - **Changing the public hostname invalidates the connector.** OAuth tokens are bound to the resource URL they were issued for, so a new tunnel URL means re-authorising. That is the audience check doing its job.

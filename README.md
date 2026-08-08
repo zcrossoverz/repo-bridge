@@ -7,7 +7,7 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-2025--06--18-8A2BE2.svg)](https://modelcontextprotocol.io)
 [![OAuth 2.1](https://img.shields.io/badge/auth-OAuth%202.1%20%2B%20PKCE-orange.svg)](docs/SECURITY.md)
-[![Checks](https://img.shields.io/badge/checks-200%20passing-success.svg)](#verification)
+[![Checks](https://img.shields.io/badge/checks-217%20passing-success.svg)](#verification)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)](https://www.typescriptlang.org)
 
 repo-bridge is an [MCP](https://modelcontextprotocol.io) server that gives ChatGPT — or Claude Code, Cursor, or any MCP client — real access to your codebase: read and search files, edit them, run builds and tests, drive git, push branches, open pull requests.
@@ -173,13 +173,13 @@ The bridge assumes the model will sometimes be wrong, and that repository conten
 npm run verify
 ```
 
-**200 checks, all passing:**
+**217 checks, all passing** — on Linux and Windows, Node 22 and 24:
 
 | Suite | Checks | What it proves |
 |---|---|---|
-| Unit | 82 | Sandbox escapes, command policy, secret redaction, patching, gitignore/glob, OAuth store semantics |
+| Unit | 94 | Sandbox escapes, command policy, secret redaction, patching, gitignore/glob, OAuth store semantics, per-caller workspace isolation |
 | End-to-end | 51 | A real git repo driven **through the MCP protocol**: inspect → search → read → create a failing test → run (red) → fix → run (green) → build → diff → branch → commit → push to a real remote → report |
-| HTTP + auth | 67 | Both auth modes, plus a full OAuth 2.1 flow: 401 challenge → metadata discovery → dynamic registration → consent → PKCE exchange → MCP over bearer → refresh → revoke |
+| HTTP + auth | 72 | Both auth modes, plus a full OAuth 2.1 flow: 401 challenge → metadata discovery → dynamic registration → consent → PKCE exchange → MCP over bearer → refresh → revoke — and two authorized clients keeping separate workspaces |
 
 The suites assert the **refusals** too: reading `.env`, path traversal, command chaining, blocked binaries, committing to a protected branch, replayed authorization codes, wrong PKCE verifiers, foreign token audiences, unregistered redirect URIs.
 
@@ -189,6 +189,7 @@ Independently verified with the official MCP Inspector.
 
 - The OAuth flow is verified against the specification with a real HTTP client, not against ChatGPT's servers — confirming that end to end needs a public host and a ChatGPT account.
 - The bridge is its own authorization server with a single shared passphrase. Fits a self-hosted single-operator tool; it is not multi-tenant.
+- Each authenticated client keeps its own active workspace, but **several chats inside one ChatGPT connector share it** — MCP carries no conversation identity. Pass `workspace` explicitly, or give each task its own managed workspace, when running parallel work in one connector.
 - Live pull-request creation isn't covered by automated tests (needs a real token and repository); the code path is exercised to the API boundary.
 - `run_command` has no interactive stdin — use non-interactive flags.
 
@@ -225,6 +226,7 @@ See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for systemd/NSSM services, ngin
 src/
   index.ts            entry point; transport selection
   config.ts           environment configuration (the only source of permissions)
+  context.ts          per-request caller identity, so clients stay isolated
   logger.ts           structured logs + append-only audit trail
   auth/               OAuth 2.1 server, token store, the single request gate
   security/           sandbox, secrets, capabilities, command policy
