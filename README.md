@@ -75,6 +75,18 @@ Your code stays on your machine (or your own VPS). The bridge only ever sees the
 Requires Node.js 22+ and git. [ripgrep](https://github.com/BurntSushi/ripgrep) is optional and speeds up search on large repos.
 
 ```bash
+npx repo-bridge-mcp --stdio
+```
+
+Or install it:
+
+```bash
+npm install -g repo-bridge-mcp
+```
+
+From source, if you want to hack on it:
+
+```bash
 git clone https://github.com/zcrossoverz/repo-bridge.git && cd repo-bridge && npm install && npm run build
 ```
 
@@ -105,7 +117,7 @@ Full walkthrough: **[docs/CHATGPT.md](docs/CHATGPT.md)**
 ### With Claude Code, Cursor, or MCP Inspector
 
 ```bash
-REPO_BRIDGE_WORKSPACES="demo=/path/to/project" node dist/index.js --stdio
+REPO_BRIDGE_WORKSPACES="demo=/path/to/project" npx repo-bridge-mcp --stdio
 ```
 
 ---

@@ -1,12 +1,48 @@
 {
   "name": "repo-bridge-mcp",
   "version": "1.0.0",
-  "description": "MCP coding bridge that lets ChatGPT Web (or any MCP client) read, edit, build, test, and ship real repositories — local or remote Git — without needing an LLM API key.",
+  "description": "MCP server that turns ChatGPT Web into a real coding agent on your own repositories: read, search, edit, build, test, git, pull requests. OAuth 2.1. No OpenAI API key.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "repo-bridge": "dist/index.js"
   },
+  "// files": "Explicit, so packaging never depends on .gitignore fallback behaviour. dist/ is gitignored but must ship.",
+  "files": [
+    "dist",
+    "!dist/test",
+    "!dist/**/*.map",
+    "docs",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    ".env.example"
+  ],
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "chatgpt",
+    "chatgpt-connector",
+    "coding-agent",
+    "ai-agent",
+    "ai-coding-assistant",
+    "agentic",
+    "oauth2",
+    "developer-tools",
+    "git",
+    "automation",
+    "self-hosted"
+  ],
+  "author": "zcrossoverz",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zcrossoverz/repo-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zcrossoverz/repo-bridge/issues"
+  },
+  "homepage": "https://github.com/zcrossoverz/repo-bridge#readme",
   "scripts": {
     "build": "tsc",
     "start": "node --env-file-if-exists=.env dist/index.js",
@@ -16,7 +52,8 @@
     "test": "node --test dist/test/*.test.js",
     "test:e2e": "node scripts/e2e.mjs",
     "test:http": "node scripts/http-check.mjs",
-    "verify": "npm run build && npm test && npm run test:e2e && npm run test:http"
+    "verify": "npm run build && npm test && npm run test:e2e && npm run test:http",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0"
