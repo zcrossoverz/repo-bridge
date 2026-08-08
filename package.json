@@ -1,6 +1,6 @@
 {
   "name": "repo-bridge-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server that turns ChatGPT Web into a real coding agent on your own repositories: read, search, edit, build, test, git, pull requests. OAuth 2.1. No OpenAI API key.",
   "type": "module",
   "main": "dist/index.js",

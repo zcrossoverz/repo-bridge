@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.1] — 2026-08-09
 
 ### Added
 
@@ -68,4 +68,5 @@ First release.
 - Live pull-request creation is not covered by automated tests.
 - `run_command` has no interactive stdin.
 
+[1.0.1]: https://github.com/zcrossoverz/repo-bridge/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zcrossoverz/repo-bridge/releases/tag/v1.0.0

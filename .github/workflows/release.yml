@@ -16,9 +16,14 @@ name: Release
 # Until that is configured, this workflow fails at the publish step and nothing
 # else is affected.
 
+# Manual-only until Trusted Publishing is configured on npmjs.com. Firing this
+# on `release: published` before that setup exists would fail every release and
+# leave a red mark on the repository for no reason. Once the trusted publisher is
+# registered, add back:
+#
+#   release:
+#     types: [published]
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
