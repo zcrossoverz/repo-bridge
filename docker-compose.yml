@@ -1,0 +1,46 @@
+services:
+  repo-bridge:
+    build: .
+    image: repo-bridge:latest
+    container_name: repo-bridge
+    restart: unless-stopped
+
+    # Bound to loopback on purpose. Publish it through a tunnel or a reverse
+    # proxy with TLS (see docs/DEPLOYMENT.md) rather than exposing 8848 directly.
+    ports:
+      - "127.0.0.1:8848:8848"
+
+    env_file:
+      - .env
+
+    environment:
+      REPO_BRIDGE_MODE: http
+      REPO_BRIDGE_HOST: 0.0.0.0
+      REPO_BRIDGE_PORT: "8848"
+      REPO_BRIDGE_DATA_DIR: /data
+      REPO_BRIDGE_MANAGED_ROOT: /workspaces
+      # oauth is required for ChatGPT Web. REPO_BRIDGE_TOKEN (the consent
+      # passphrase) comes from .env. The container binds 0.0.0.0 because Docker
+      # networking requires it — the published port is loopback-only above, and
+      # the bridge still refuses to run unauthenticated here.
+      REPO_BRIDGE_AUTH: ${REPO_BRIDGE_AUTH:-oauth}
+      # Set this to your tunnel/proxy hostname so OAuth metadata advertises the
+      # URL clients actually use, e.g. https://bridge.example.com
+      REPO_BRIDGE_PUBLIC_URL: ${REPO_BRIDGE_PUBLIC_URL:-}
+      # Local repositories are mounted at /repos; declare them here to make them
+      # openable. Aliases are what you type in ChatGPT.
+      REPO_BRIDGE_WORKSPACES: ${REPO_BRIDGE_WORKSPACES:-repos=/repos}
+
+    volumes:
+      - bridge-data:/data
+      - bridge-workspaces:/workspaces
+      # Mount the projects you want to work on. Read-write: the agent edits them.
+      # - /srv/projects:/repos
+
+    # The bridge writes only to /data, /workspaces and the repositories you mount.
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  bridge-data:
+  bridge-workspaces:
