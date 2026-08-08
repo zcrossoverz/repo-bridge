@@ -15,7 +15,18 @@ repo-bridge is an [MCP](https://modelcontextprotocol.io) server that gives ChatG
 ChatGPT Web ──MCP/OAuth──► repo-bridge ──► filesystem · shell · git · GitHub/GitLab
 ```
 
-**The bridge never calls an LLM API.** Reasoning stays in your ChatGPT session; the bridge is the execution layer. There is no `OPENAI_API_KEY`, no Codex/API metering, and no per-token charge added by this server — you use the ChatGPT subscription you already pay for. (Your ChatGPT plan's own rate limits still apply; this project does not change them.)
+**The bridge never calls an LLM API.** Reasoning stays in your ChatGPT session; the bridge is the execution layer. There is no `OPENAI_API_KEY`, no Codex/API metering, and no per-token charge added by this server — you use the ChatGPT plan you already have.
+
+### Which model runs it?
+
+Whatever your ChatGPT session already uses. repo-bridge is model-agnostic and contains no model logic of its own.
+
+| ChatGPT plan | Model you get | What that means here |
+|---|---|---|
+| **Free** | GPT-5.6 Luna (default) | Enough to search, read, patch and test a real repository — at no cost |
+| **Plus / Pro / Business** | GPT-5.6 Sol | OpenAI's strongest coding model, 272K context — aimed at your repo with no API bill on top |
+
+GPT-5.6 Sol requires a paid plan; the free tier runs Luna. Your plan's own rate limits apply either way — this project doesn't change them, and doesn't claim to.
 
 ---
 
@@ -238,4 +249,4 @@ Issues and pull requests welcome. Run `npm run verify` before opening one; if yo
 
 ---
 
-<sub>**Keywords:** MCP server · Model Context Protocol · ChatGPT MCP connector · ChatGPT coding agent · AI coding assistant · autonomous coding agent · Claude Code alternative · Codex alternative · Cursor alternative · self-hosted AI developer tools · OAuth 2.1 MCP authorization · MCP dynamic client registration · PKCE · agentic coding · AI pair programming · code generation · automated testing · git automation · GitHub pull request automation · developer tools · TypeScript · Node.js · no API key required</sub>
+<sub>**Keywords:** MCP server · Model Context Protocol · ChatGPT MCP connector · ChatGPT coding agent · GPT-5.6 · GPT-5.6 Sol · GPT-5.6 Luna · AI coding assistant · autonomous coding agent · Claude Code alternative · Codex alternative · Cursor alternative · self-hosted AI developer tools · OAuth 2.1 MCP authorization · MCP dynamic client registration · PKCE · agentic coding · AI pair programming · code generation · automated testing · git automation · GitHub pull request automation · developer tools · TypeScript · Node.js · no API key required</sub>
