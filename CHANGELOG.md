@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **CLI surface.** `--help` and `--version` now work. Previously both silently started a stdio server and hung, which as a published `npx` package meant the first thing a new user tried appeared to be broken.
+- **Operator commands for OAuth access.** `repo-bridge clients` lists authorised clients with their redirect URIs and live token counts; `repo-bridge revoke <client-id>` removes one and all its tokens. Revoking a single connector previously meant deleting the whole state file. These are CLI commands, not MCP tools, so a model cannot grant or withdraw its own credentials.
+- **Release workflow** using npm Trusted Publishing (OIDC) with provenance attestations — no publish token exists to leak, and the tarball is verifiably built from the public commit.
+- **Stale managed workspaces** are flagged in `workspace_list` with their idle time, so clones stop accumulating unnoticed.
+
+### Fixed
+
+- **Concurrent bridge processes lost each other's state.** Two processes sharing a data directory each held their own copy of `state.json` / `oauth.json`, so the second to write discarded the first's work — a registered workspace or an issued token would simply vanish. Mutations now run under a cross-process lock and start from what is on disk. Stale locks from a crashed process are broken rather than waited on. Proven by a test that spawns real concurrent processes and fails without the lock.
+- **Atomic writes failed intermittently on Windows.** Replacing a file with `write temp + rename` fails with `EPERM` whenever anything holds a handle to the destination — another process, the user's editor, an antivirus scanner, the search indexer. The handle is released within milliseconds, so the rename is now retried with a short backoff. This affected `edit_file` and `write_file`, not just internal state: the file a coding agent edits is usually the one the user has open. Found by the new concurrency test, which surfaced it as a real failure rather than a rare mystery bug in the field.
+- The version number is read from `package.json` instead of being duplicated as a constant, so `--version` and the MCP handshake cannot drift apart.
+
 ## [1.0.0] — 2026-08-08
 
 First release.

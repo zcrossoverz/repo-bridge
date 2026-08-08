@@ -64,8 +64,19 @@ Access tokens are short-lived and the client is expected to refresh. If a client
 **401 Unauthorized in path-token mode**
 Token mismatch. Compare `REPO_BRIDGE_TOKEN` with what the client sends — a trailing newline from a copy-paste is the usual cause. If the client cannot set headers, use `https://host/mcp/<token>`.
 
-**How do I revoke access?**
-Delete `oauth.json` from the data directory and restart: all clients and tokens are dropped and must re-authorize. To lock everything out instead, change `REPO_BRIDGE_TOKEN`.
+**Who currently has access, and how do I revoke it?**
+
+```bash
+repo-bridge clients
+```
+
+Lists every authorised OAuth client with its redirect URI and live token counts.
+
+```bash
+repo-bridge revoke <client-id>
+```
+
+Removes that client and all its tokens; it must complete the consent flow again. To lock everyone out at once, change `REPO_BRIDGE_TOKEN` (stops new authorisations) and delete `oauth.json` (drops existing tokens).
 
 **405 Method Not Allowed on GET /mcp**
 Expected. The endpoint is stateless and only answers POST; clients that open an SSE stream first fall back automatically.

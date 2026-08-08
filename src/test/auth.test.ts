@@ -167,7 +167,10 @@ test('an unknown or refresh token is not accepted as an access token', () => {
 
 test('access tokens expire', async () => {
   resetConfigForTests();
-  process.env.REPO_BRIDGE_OAUTH_ACCESS_TTL = '1';
+  // A 1s TTL leaves no margin: a loaded CI runner can stall long enough between
+  // issuing and checking that the "still valid" assertion fails for the wrong
+  // reason. 3s keeps the test honest without making it flaky.
+  process.env.REPO_BRIDGE_OAUTH_ACCESS_TTL = '3';
   loadConfig();
 
   const store = freshStore();
@@ -175,7 +178,7 @@ test('access tokens expire', async () => {
   const { accessToken } = store.issueTokenPair({ clientId: 'rbc_x', resource, scope: 'mcp' });
   assert.equal(store.validateAccessToken(accessToken, resource).ok, true);
 
-  await new Promise((r) => setTimeout(r, 1100));
+  await new Promise((r) => setTimeout(r, 3200));
   const expired = store.validateAccessToken(accessToken, resource);
   assert.equal(expired.ok, false);
   assert.equal(expired.ok === false && expired.reason, 'expired_token');

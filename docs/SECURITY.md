@@ -92,6 +92,8 @@ Authentication runs **before** the MCP transport is constructed, so an unauthent
 
 **`none`.** Refused on a non-loopback interface unless `REPO_BRIDGE_ALLOW_INSECURE=true` is set deliberately. Never combine it with a public tunnel: it hands file writing and command execution to anyone who finds the URL.
 
+**Seeing and revoking access.** `repo-bridge clients` lists every authorised client with its redirect URI and live token counts; `repo-bridge revoke <client-id>` removes one and all its tokens. Both are CLI commands rather than MCP tools on purpose: a model should not be able to grant or withdraw its own credentials.
+
 `REPO_BRIDGE_IP_ALLOWLIST` adds an exact-match source restriction in any mode. `/health` is the only unauthenticated route; it returns liveness, version and the auth mode name, and nothing else.
 
 Terminate TLS in front of the bridge — a tunnel or a reverse proxy. OAuth requires HTTPS for its endpoints. Never publish port 8848 directly.

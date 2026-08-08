@@ -16,7 +16,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from '../config.js';
-import { log } from '../logger.js';
+import { atomicWriteFileSync } from '../fs/atomic.js';
+import { withFileLock } from '../fs/lock.js';
+import { audit, log } from '../logger.js';
 
 export interface RegisteredClient {
   clientId: string;
@@ -108,11 +110,24 @@ export class OAuthStore {
     return { version: 1, formKey: randomToken(32), clients: {}, tokens: {} };
   }
 
+  /**
+   * Apply a change under an exclusive lock, starting from the current on-disk
+   * state. Without this, a second bridge process sharing the data directory
+   * would overwrite tokens the first one issued — logging a live client out for
+   * no visible reason.
+   */
+  private mutate<T>(fn: () => T): T {
+    return withFileLock(this.file, () => {
+      this.state = this.load();
+      const result = fn();
+      this.save();
+      return result;
+    });
+  }
+
   private save(): void {
-    const tmp = this.file + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2), { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(tmp, this.file);
-    // renameSync does not carry mode on every platform; assert it after the fact.
+    atomicWriteFileSync(this.file, JSON.stringify(this.state, null, 2), { mode: 0o600 });
+    // rename does not carry mode on every platform; assert it after the fact.
     try {
       fs.chmodSync(this.file, 0o600);
     } catch {
@@ -175,8 +190,9 @@ export class OAuthStore {
       createdAt: Date.now(),
     };
 
-    this.state.clients[clientId] = client;
-    this.save();
+    this.mutate(() => {
+      this.state.clients[clientId] = client;
+    });
     log.info('oauth client registered', {
       clientId,
       clientName: input.clientName,
@@ -198,7 +214,39 @@ export class OAuthStore {
   }
 
   listClients(): RegisteredClient[] {
-    return Object.values(this.state.clients);
+    return Object.values(this.state.clients).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** Live token counts for one client — operator visibility, no token material. */
+  tokenCountsFor(clientId: string): { access: number; refresh: number } {
+    const now = Date.now();
+    const live = Object.values(this.state.tokens).filter((t) => t.clientId === clientId && t.expiresAt > now);
+    return {
+      access: live.filter((t) => t.kind === 'access').length,
+      refresh: live.filter((t) => t.kind === 'refresh').length,
+    };
+  }
+
+  /**
+   * Remove a client and everything it holds. Cutting off one connector should
+   * not require deleting the whole state file, which is what it used to take.
+   */
+  revokeClient(clientId: string): { tokens: number } {
+    const tokens = this.mutate(() => {
+      let removed = 0;
+      for (const [hash, token] of Object.entries(this.state.tokens)) {
+        if (token.clientId === clientId) {
+          delete this.state.tokens[hash];
+          removed++;
+        }
+      }
+      delete this.state.clients[clientId];
+      return removed;
+    });
+    // audit(), not log.info(): revocation must reach audit.log even when the
+    // CLI has quietened stderr so its own output stays readable.
+    audit({ action: 'oauth_client_revoke', target: clientId, outcome: 'ok', detail: { tokensRemoved: tokens } });
+    return { tokens };
   }
 
   // ── authorization codes ────────────────────────────────────────────────────
@@ -234,6 +282,15 @@ export class OAuthStore {
     refreshToken: string;
     expiresIn: number;
   } {
+    return this.mutate(() => this.issueTokenPairLocked(input));
+  }
+
+  /** Caller must already hold the lock — refresh rotation issues within its own. */
+  private issueTokenPairLocked(input: { clientId: string; resource: string; scope: string; family?: string }): {
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  } {
     const cfg = loadConfig();
     const family = input.family ?? randomToken(16);
     const now = Date.now();
@@ -261,7 +318,6 @@ export class OAuthStore {
     };
 
     this.pruneTokens();
-    this.save();
     return { accessToken, refreshToken, expiresIn: cfg.auth.accessTtlSec };
   }
 
@@ -270,23 +326,26 @@ export class OAuthStore {
    * whole family is invalidated so a replayed token cannot mint a second pair.
    */
   rotateRefreshToken(refreshToken: string, clientId: string): { accessToken: string; refreshToken: string; expiresIn: number } | { error: string } {
-    const record = this.state.tokens[sha256(refreshToken)];
-    if (!record || record.kind !== 'refresh') return { error: 'invalid_grant' };
-    if (record.expiresAt < Date.now()) {
-      delete this.state.tokens[sha256(refreshToken)];
-      this.save();
-      return { error: 'invalid_grant' };
-    }
-    if (record.clientId !== clientId) return { error: 'invalid_grant' };
+    // The whole check-and-replace runs inside one lock: two concurrent refreshes
+    // of the same token must not both succeed.
+    return this.mutate(() => {
+      const record = this.state.tokens[sha256(refreshToken)];
+      if (!record || record.kind !== 'refresh') return { error: 'invalid_grant' };
+      if (record.expiresAt < Date.now()) {
+        delete this.state.tokens[sha256(refreshToken)];
+        return { error: 'invalid_grant' };
+      }
+      if (record.clientId !== clientId) return { error: 'invalid_grant' };
 
-    for (const [hash, token] of Object.entries(this.state.tokens)) {
-      if (token.family === record.family) delete this.state.tokens[hash];
-    }
-    return this.issueTokenPair({
-      clientId: record.clientId,
-      resource: record.resource,
-      scope: record.scope,
-      family: record.family,
+      for (const [hash, token] of Object.entries(this.state.tokens)) {
+        if (token.family === record.family) delete this.state.tokens[hash];
+      }
+      return this.issueTokenPairLocked({
+        clientId: record.clientId,
+        resource: record.resource,
+        scope: record.scope,
+        family: record.family,
+      });
     });
   }
 
@@ -306,15 +365,16 @@ export class OAuthStore {
   }
 
   revoke(token: string): boolean {
-    const key = sha256(token);
-    const record = this.state.tokens[key];
-    if (!record) return false;
-    // Revoking either half of a pair drops the whole family.
-    for (const [hash, other] of Object.entries(this.state.tokens)) {
-      if (other.family === record.family) delete this.state.tokens[hash];
-    }
-    this.save();
-    return true;
+    return this.mutate(() => {
+      const key = sha256(token);
+      const record = this.state.tokens[key];
+      if (!record) return false;
+      // Revoking either half of a pair drops the whole family.
+      for (const [hash, other] of Object.entries(this.state.tokens)) {
+        if (other.family === record.family) delete this.state.tokens[hash];
+      }
+      return true;
+    });
   }
 
   private pruneTokens(): void {

@@ -9,7 +9,7 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-2025--06--18-8A2BE2.svg)](https://modelcontextprotocol.io)
 [![OAuth 2.1](https://img.shields.io/badge/auth-OAuth%202.1%20%2B%20PKCE-orange.svg)](docs/SECURITY.md)
-[![Checks](https://img.shields.io/badge/checks-220%20passing-success.svg)](#verification)
+[![Checks](https://img.shields.io/badge/checks-224%20passing-success.svg)](#verification)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6.svg)](https://www.typescriptlang.org)
 
 repo-bridge is an [MCP](https://modelcontextprotocol.io) server that gives ChatGPT — or Claude Code, Cursor, or any MCP client — real access to your codebase: read and search files, edit them, run builds and tests, drive git, push branches, open pull requests.
@@ -155,6 +155,16 @@ The level is fixed at process start. Tools above it aren't even advertised to th
 
 30 tools at `full` permission.
 
+Plus an operator CLI, deliberately outside the model's reach — a model should not be able to grant or withdraw its own credentials:
+
+```bash
+repo-bridge clients          # who is authorised, and how many live tokens they hold
+```
+
+```bash
+repo-bridge revoke <id>      # cut one off; it must complete consent again
+```
+
 **Workspace** — `workspace_list` · `workspace_open` · `workspace_info` · `repo_open_remote` · `workspace_close`
 **Files** — `list_dir` · `read_file` · `search_code` · `find_files` · `write_file` · `edit_file` · `move_path` · `delete_path` · `create_dir` · `file_info`
 **Execution** — `run_command` · `run_build` · `run_tests` · `run_lint`
@@ -187,11 +197,11 @@ The bridge assumes the model will sometimes be wrong, and that repository conten
 npm run verify
 ```
 
-**220 checks, all passing** — on Linux and Windows, Node 22 and 24:
+**224 checks, all passing** — on Linux and Windows, Node 22 and 24:
 
 | Suite | Checks | What it proves |
 |---|---|---|
-| Unit | 97 | Sandbox escapes, command policy, secret redaction, patching, gitignore/glob, symlink containment, OAuth store semantics, per-caller workspace isolation |
+| Unit | 101 | Sandbox escapes, command policy, secret redaction, patching, gitignore/glob, symlink containment, OAuth store semantics, per-caller workspace isolation, cross-process state integrity |
 | End-to-end | 51 | A real git repo driven **through the MCP protocol**: inspect → search → read → create a failing test → run (red) → fix → run (green) → build → diff → branch → commit → push to a real remote → report |
 | HTTP + auth | 72 | Both auth modes, plus a full OAuth 2.1 flow: 401 challenge → metadata discovery → dynamic registration → consent → PKCE exchange → MCP over bearer → refresh → revoke — and two authorized clients keeping separate workspaces |
 

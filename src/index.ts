@@ -9,6 +9,7 @@
  * Without a flag, REPO_BRIDGE_MODE decides (default: stdio).
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { runCli } from './cli.js';
 import { loadConfig } from './config.js';
 import { closeLogger, configureLogger, log } from './logger.js';
 import { configureSecretPatterns, registerLiteralSecret } from './security/secrets.js';
@@ -26,6 +27,15 @@ function parseMode(cfgMode: string): 'stdio' | 'http' | 'both' {
 }
 
 async function main(): Promise<void> {
+  // --help, --version and the operator commands never start a server.
+  try {
+    const cli = runCli(process.argv.slice(2));
+    if (cli.handled) process.exit(cli.exitCode);
+  } catch (e) {
+    process.stderr.write(`\nrepo-bridge: ${(e as Error).message}\n\n`);
+    process.exit(2);
+  }
+
   let cfg;
   try {
     cfg = loadConfig();

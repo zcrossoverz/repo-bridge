@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BridgeError } from '../errors.js';
 import { ALWAYS_SKIP_DIRS, resolvePath } from '../security/paths.js';
+import { atomicWriteFileSync } from './atomic.js';
 
 const MAX_READ_BYTES = 2 * 1024 * 1024;
 const MAX_WRITE_BYTES = 8 * 1024 * 1024;
@@ -153,21 +154,16 @@ export function withLineNumbers(content: string, startLine: number): string {
     .join('\n');
 }
 
+/**
+ * Replace a file's contents atomically.
+ *
+ * Retries the rename on Windows, where an open handle from an editor, a watcher
+ * or an antivirus scanner makes it fail with EPERM for a few milliseconds — the
+ * exact situation a coding agent creates, since the user usually has the file
+ * open in front of them.
+ */
 function atomicWrite(abs: string, content: string): void {
-  const dir = path.dirname(abs);
-  fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(dir, `.repo-bridge-${process.pid}-${Date.now()}.tmp`);
-  try {
-    fs.writeFileSync(tmp, content, 'utf8');
-    fs.renameSync(tmp, abs);
-  } catch (e) {
-    try {
-      fs.rmSync(tmp, { force: true });
-    } catch {
-      /* ignore */
-    }
-    throw e;
-  }
+  atomicWriteFileSync(abs, content);
 }
 
 export type WriteMode = 'create' | 'overwrite' | 'append';

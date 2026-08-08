@@ -1,0 +1,73 @@
+name: Release
+
+# Publishes to npm when a GitHub release is published.
+#
+# Uses npm Trusted Publishing (OIDC): npm trusts this repository directly, so no
+# publish token exists anywhere — not in repository secrets, not on a laptop.
+# A token that does not exist cannot leak, and this workflow also attaches a
+# provenance attestation proving the tarball was built from the public commit
+# the release points at.
+#
+# ONE-TIME SETUP, on npmjs.com → the package → Settings → Trusted Publisher:
+#   Publisher:        GitHub Actions
+#   Organization:     zcrossoverz
+#   Repository:       repo-bridge
+#   Workflow filename: release.yml
+# Until that is configured, this workflow fails at the publish step and nothing
+# else is affected.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      # Trusted publishing needs a recent npm; the bundled one may predate it.
+      - name: Use a publish-capable npm
+        run: npm install -g npm@latest
+
+      - run: npm ci
+
+      # A release tag that disagrees with package.json would publish a version
+      # nobody can trace back to a commit. Fail loudly instead.
+      - name: Tag must match package.json
+        if: github.event_name == 'release'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Release tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+          echo "Publishing version $PKG"
+
+      - name: Configure git for the fixtures
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI"
+          git config --global init.defaultBranch main
+
+      # Never publish something that has not passed the whole suite.
+      - name: Verify
+        run: npm run verify
+
+      - name: Publish
+        run: npm publish --provenance --access public

@@ -14,6 +14,8 @@ import crypto from 'node:crypto';
 import { loadConfig, type Config } from '../config.js';
 import { currentPrincipal } from '../context.js';
 import { BridgeError } from '../errors.js';
+import { atomicWriteFileSync } from '../fs/atomic.js';
+import { withFileLock } from '../fs/lock.js';
 import { isInside, realpathTolerant } from '../security/paths.js';
 
 export interface RemoteInfo {
@@ -131,9 +133,25 @@ export class WorkspaceRegistry {
   }
 
   private save(): void {
-    const tmp = this.stateFile + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf8');
-    fs.renameSync(tmp, this.stateFile);
+    atomicWriteFileSync(this.stateFile, JSON.stringify(this.state, null, 2));
+  }
+
+  /**
+   * Apply a change under an exclusive lock, starting from what is actually on
+   * disk right now.
+   *
+   * Reloading rather than merging is deliberate: a merge cannot express a
+   * deletion, so closing a workspace in one process would be undone by the next
+   * write from another. Every mutation is short and saves immediately, so there
+   * is never in-memory work to lose by reloading.
+   */
+  private mutate<T>(fn: () => T): T {
+    return withFileLock(this.stateFile, () => {
+      this.state = this.load();
+      const result = fn();
+      this.save();
+      return result;
+    });
   }
 
   // ── configured roots ───────────────────────────────────────────────────────
@@ -216,6 +234,8 @@ export class WorkspaceRegistry {
     const byAlias = this.cfg.workspaceRoots.find((r) => r.alias === target);
     const candidate = byAlias ? byAlias.path : path.resolve(target);
 
+    // Validation happens outside the lock: it touches only the filesystem and
+    // configuration, and holding a lock while throwing helps no one.
     if (!fs.existsSync(candidate)) {
       throw new BridgeError('PATH_NOT_FOUND', `Directory does not exist: ${candidate}`, {
         hint: `Known aliases: ${this.cfg.workspaceRoots.map((r) => r.alias).join(', ') || '(none)'}`,
@@ -225,19 +245,22 @@ export class WorkspaceRegistry {
       throw new BridgeError('INVALID_ARGUMENT', `Not a directory: ${candidate}`);
     }
     this.assertAllowedRoot(candidate);
-
     const root = realpathTolerant(candidate);
+
+    return this.mutate(() => this.openLocalLocked(root, byAlias?.alias, principal));
+  }
+
+  private openLocalLocked(root: string, aliasHint: string | undefined, principal: string): Workspace {
     const existing = this.state.workspaces.find((w) => isInside(w.root, root) && isInside(root, w.root));
     if (existing) {
       existing.lastUsedAt = new Date().toISOString();
       this.state.activeByPrincipal[principal] = existing.id;
-      this.save();
       return existing;
     }
 
     const ws: Workspace = {
       id: crypto.randomUUID(),
-      alias: this.uniqueAlias(byAlias?.alias ?? path.basename(root)),
+      alias: this.uniqueAlias(aliasHint ?? path.basename(root)),
       root,
       kind: 'local',
       createdAt: new Date().toISOString(),
@@ -245,7 +268,6 @@ export class WorkspaceRegistry {
     };
     this.state.workspaces.push(ws);
     this.state.activeByPrincipal[principal] = ws.id;
-    this.save();
     return ws;
   }
 
@@ -253,38 +275,40 @@ export class WorkspaceRegistry {
   registerManaged(root: string, remote: RemoteInfo, task?: string, principal: string = currentPrincipal()): Workspace {
     this.assertAllowedRoot(root);
     const real = realpathTolerant(root);
-    const existing = this.state.workspaces.find((w) => w.root === real);
-    if (existing) {
-      existing.lastUsedAt = new Date().toISOString();
-      existing.remote = remote;
-      if (task) existing.task = task;
-      this.state.activeByPrincipal[principal] = existing.id;
-      this.save();
-      return existing;
-    }
-    const ws: Workspace = {
-      id: crypto.randomUUID(),
-      alias: this.uniqueAlias(task ? `${remote.repo}-${slug(task)}` : remote.repo),
-      root: real,
-      kind: 'managed',
-      remote,
-      ...(task ? { task } : {}),
-      createdAt: new Date().toISOString(),
-      lastUsedAt: new Date().toISOString(),
-    };
-    this.state.workspaces.push(ws);
-    this.state.activeByPrincipal[principal] = ws.id;
-    this.save();
-    return ws;
+
+    return this.mutate(() => {
+      const existing = this.state.workspaces.find((w) => w.root === real);
+      if (existing) {
+        existing.lastUsedAt = new Date().toISOString();
+        existing.remote = remote;
+        if (task) existing.task = task;
+        this.state.activeByPrincipal[principal] = existing.id;
+        return existing;
+      }
+      const ws: Workspace = {
+        id: crypto.randomUUID(),
+        alias: this.uniqueAlias(task ? `${remote.repo}-${slug(task)}` : remote.repo),
+        root: real,
+        kind: 'managed',
+        remote,
+        ...(task ? { task } : {}),
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+      };
+      this.state.workspaces.push(ws);
+      this.state.activeByPrincipal[principal] = ws.id;
+      return ws;
+    });
   }
 
   setActive(idOrAlias: string, principal: string = currentPrincipal()): Workspace {
-    const ws = this.get(idOrAlias);
-    if (!ws) throw new BridgeError('WORKSPACE_NOT_FOUND', `No workspace named "${idOrAlias}".`);
-    ws.lastUsedAt = new Date().toISOString();
-    this.state.activeByPrincipal[principal] = ws.id;
-    this.save();
-    return ws;
+    return this.mutate(() => {
+      const ws = this.get(idOrAlias);
+      if (!ws) throw new BridgeError('WORKSPACE_NOT_FOUND', `No workspace named "${idOrAlias}".`);
+      ws.lastUsedAt = new Date().toISOString();
+      this.state.activeByPrincipal[principal] = ws.id;
+      return ws;
+    });
   }
 
   /** Forget a workspace. Managed workspaces may additionally be deleted on disk. */
@@ -306,12 +330,13 @@ export class WorkspaceRegistry {
       deleted = true;
     }
 
-    this.state.workspaces = this.state.workspaces.filter((w) => w.id !== ws.id);
-    // Clear it for every caller that had it selected, not just this one.
-    for (const [principal, id] of Object.entries(this.state.activeByPrincipal)) {
-      if (id === ws.id) delete this.state.activeByPrincipal[principal];
-    }
-    this.save();
+    this.mutate(() => {
+      this.state.workspaces = this.state.workspaces.filter((w) => w.id !== ws.id);
+      // Clear it for every caller that had it selected, not just this one.
+      for (const [principal, id] of Object.entries(this.state.activeByPrincipal)) {
+        if (id === ws.id) delete this.state.activeByPrincipal[principal];
+      }
+    });
     this.logs.delete(ws.id);
     try {
       fs.rmSync(this.sessionFile(ws.id), { force: true });

@@ -5,9 +5,10 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { callTool, SERVER_INSTRUCTIONS, toolManifest } from '../tools/index.js';
 import { log } from '../logger.js';
+import { VERSION } from '../version.js';
 
 export const SERVER_NAME = 'repo-bridge';
-export const SERVER_VERSION = '1.0.0';
+export const SERVER_VERSION = VERSION;
 
 export function createMcpServer(): Server {
   const server = new Server(

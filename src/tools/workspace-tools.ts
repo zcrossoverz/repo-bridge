@@ -11,6 +11,11 @@ import { buildBrief } from '../workspace/brief.js';
 import { registry } from '../workspace/registry.js';
 import { block, bullets, join, kv, type ToolDef } from './types.js';
 
+function idleDays(lastUsedAt: string): number {
+  const ms = Date.now() - new Date(lastUsedAt).getTime();
+  return Number.isFinite(ms) ? Math.floor(ms / 86_400_000) : 0;
+}
+
 export const workspaceTools: ToolDef[] = [
   {
     name: 'workspace_list',
@@ -34,13 +39,21 @@ export const workspaceTools: ToolDef[] = [
         ]),
         block('OPEN WORKSPACES', [
           ...bullets(
-            open.map(
-              (w) =>
+            open.map((w) => {
+              const idle = idleDays(w.lastUsedAt);
+              // Managed clones accumulate silently; surface the stale ones so
+              // they can be closed instead of quietly filling the disk.
+              const stale = w.kind === 'managed' && idle >= 14 ? `  [idle ${idle}d — consider workspace_close]` : '';
+              return (
                 `${w.alias}${active?.id === w.id ? ' [ACTIVE]' : ''} — ${w.kind} — ${w.root}` +
-                (w.remote ? ` (${w.remote.owner}/${w.remote.repo})` : ''),
-            ),
+                (w.remote ? ` (${w.remote.owner}/${w.remote.repo})` : '') +
+                (w.task ? ` task=${w.task}` : '') +
+                stale
+              );
+            }),
           ),
           open.length === 0 ? 'none' : '',
+          'Each client keeps its own active workspace; [ACTIVE] is yours.',
         ]),
         block('REMOTE MODE', [
           ...kv({
